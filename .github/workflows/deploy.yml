@@ -1,0 +1,36 @@
+name: CDK Deploy
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          cd cdk_app
+          python -m venv .venv
+          source .venv/bin/activate
+          pip install -r requirements.txt
+          pip install aws-cdk-lib constructs
+
+      - name: Deploy CDK stack
+        run: |
+          cd cdk_app
+          source .venv/bin/activate
+          npx cdk deploy --require-approval never --app "python app.py"
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: us-west-2

@@ -135,8 +135,14 @@ class MyRenderingPipelineStack(Stack):
             self,
             "APIGateway-RenderingPipeline",
             rest_api_name="APIGateway-RenderingPipeline",
-            deploy_options=apigw.StageOptions(stage_name="prod")
+            deploy_options=apigw.StageOptions(stage_name="prod"),
+            default_cors_preflight_options=apigw.CorsOptions(
+                allow_origins=apigw.Cors.ALL_ORIGINS,
+                allow_methods=apigw.Cors.ALL_METHODS,
+                allow_headers=apigw.Cors.DEFAULT_HEADERS,
+            )
         )
+
 
         # Enable open CORS on entire API
         # for demonstration purposes—this is often more permissive than a production scenario

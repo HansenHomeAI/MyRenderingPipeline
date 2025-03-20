@@ -1,103 +1,177 @@
-import os
-import json
-import boto3
-import uuid
+from aws_cdk import (
+    Stack,
+    RemovalPolicy,
+    aws_s3 as s3,
+    aws_lambda as _lambda,
+    aws_iam as iam,
+    aws_apigateway as apigw,
+    aws_dynamodb as dynamodb,
+    CfnOutput,
+)
+from constructs import Construct
 
-sagemaker = boto3.client("sagemaker", region_name="us-west-2")
-dynamodb = boto3.resource("dynamodb", region_name="us-west-2")
-
-def handler(event, context):
+class MyRenderingPipelineStack(Stack):
     """
-    Starts a SageMaker training job with user-supplied S3 path (archiveName) 
-    and containerName (e.g., nerfstudio).
+    A single CDK Stack that includes:
+      - Reference to an existing S3 bucket ('user-submissions') for input data
+      - A new S3 bucket for storing trained model outputs
+      - A DynamoDB table for tracking job statuses
+      - A Lambda function that triggers SageMaker training
+      - A Lambda function that retrieves logs / job status
+      - An API Gateway with:
+         * Root route for the training Lambda
+         * /logs route for the logs Lambda
+         * CORS enabled for any origin (pre-production)
     """
 
-    # Grab environment variables
-    output_bucket = os.environ["OUTPUT_BUCKET"]
-    table_name = os.environ["STATUS_TABLE"]
-    table = dynamodb.Table(table_name)
+    def __init__(self, scope: Construct, construct_id: str, **kwargs):
+        super().__init__(scope, construct_id, **kwargs)
 
-    # Generate a random jobId
-    job_id = str(uuid.uuid4())
+        # 1) REFERENCE EXISTING S3 BUCKET (user-submissions)
+        submissions_bucket = s3.Bucket.from_bucket_name(
+            self,
+            "UserSubmissionsBucket",
+            "user-submissions"  
+        )
 
-    # Parse incoming event data
-    # If the event is from API Gateway, "event['body']" typically holds the POST payload as a string.
-    # Otherwise, if it's invoked directly, "event" itself might be the JSON.
-    body = {}
-    if "body" in event:
-        try:
-            body = json.loads(event["body"])
-        except:
-            pass
-    else:
-        body = event
+        # 2) CREATE A NEW BUCKET FOR OUTPUT DATA
+        output_bucket = s3.Bucket(
+            self,
+            "OutputBucket-RenderingPipeline",
+            bucket_name="gabe-output-renderingpipeline-bucket",
+            removal_policy=RemovalPolicy.DESTROY
+        )
 
-    # Extract parameters
-    s3_archive_name = body.get("s3ArchiveName", "my-training-data")  # Default if none provided
-    container_name = body.get("containerName", "nerfstudio")         # Default if none provided
+        # 3) CREATE A DYNAMODB TABLE FOR JOB STATUS
+        table = dynamodb.Table(
+            self,
+            "DynamoDB-RenderingPipeline",
+            table_name="DynamoDB-RenderingPipeline",
+            partition_key=dynamodb.Attribute(
+                name="jobId",
+                type=dynamodb.AttributeType.STRING
+            ),
+            removal_policy=RemovalPolicy.DESTROY
+        )
 
-    # Build the final ECR URI
-    # Replace these with your actual AWS account/region if needed
-    account_id = "975050048887"
-    region = "us-west-2"
-    ecr_uri = f"{account_id}.dkr.ecr.{region}.amazonaws.com/{container_name}:latest"
+        # 4) CREATE THE TRAINING LAMBDA (TRIGGERS SAGEMAKER)
+        training_lambda = _lambda.Function(
+            self,
+            "Lambda-RenderingPipeline",
+            function_name="Lambda-RenderingPipeline",
+            runtime=_lambda.Runtime.PYTHON_3_9,
+            handler="handler.handler",
+            code=_lambda.Code.from_asset("lambda"),
+            environment={
+                "OUTPUT_BUCKET": output_bucket.bucket_name,
+                "STATUS_TABLE": table.table_name,
+            },
+            timeout=None,
+            memory_size=2048
+        )
 
-    # Input S3 location
-    # We'll assume your entire file/folder is in: s3://user-submissions/<archiveName>
-    input_s3_uri = f"s3://user-submissions/{s3_archive_name}"
+        # 4a) PERMISSIONS FOR TRAINING LAMBDA
+        training_lambda.role.add_managed_policy(
+            iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaBasicExecutionRole")
+        )
+        submissions_bucket.grant_read(training_lambda)
+        output_bucket.grant_read_write(training_lambda)
+        table.grant_read_write_data(training_lambda)
+        training_lambda.role.add_to_principal_policy(
+            iam.PolicyStatement(
+                actions=[
+                    "sagemaker:CreateTrainingJob",
+                    "sagemaker:DescribeTrainingJob",
+                    "sagemaker:StopTrainingJob",
+                    "sagemaker:ListTrainingJobs",
+                    "sagemaker:CreateModel",
+                    "sagemaker:DescribeModel",
+                    "sagemaker:DeleteModel",
+                    "ecr:GetAuthorizationToken",
+                    "ecr:BatchGetImage",
+                    "ecr:GetDownloadUrlForLayer",
+                    "logs:CreateLogGroup",
+                    "logs:CreateLogStream",
+                    "logs:PutLogEvents"
+                ],
+                resources=["*"]
+            )
+        )
 
-    # Construct a unique training job name
-    training_job_name = f"nerf-training-{job_id}"
+        # 5) CREATE THE LOGS LAMBDA (RETRIEVES SAGEMAKER/DB STATUS)
+        logs_lambda = _lambda.Function(
+            self,
+            "Lambda-RenderingPipeline-Logs",
+            function_name="Lambda-RenderingPipeline-Logs",
+            runtime=_lambda.Runtime.PYTHON_3_9,
+            handler="handler.handler",  # "handler.py" inside the 'logs' folder
+            code=_lambda.Code.from_asset("lambda/logs"),
+            environment={
+                "STATUS_TABLE": table.table_name,
+            },
+            timeout=None,
+            memory_size=1024
+        )
+        logs_lambda.role.add_managed_policy(
+            iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaBasicExecutionRole")
+        )
+        # Logs Lambda can read from the table and describe SageMaker jobs
+        table.grant_read_write_data(logs_lambda)
+        logs_lambda.role.add_to_principal_policy(
+            iam.PolicyStatement(
+                actions=[
+                    "sagemaker:DescribeTrainingJob",
+                    # if your logs function might call other sagemaker actions, list them here
+                ],
+                resources=["*"]
+            )
+        )
 
-    # Create the SageMaker training job
-    response = sagemaker.create_training_job(
-        TrainingJobName=training_job_name,
-        AlgorithmSpecification={
-            "TrainingImage": ecr_uri,
-            "TrainingInputMode": "File",
-        },
-        # For production, you should provide a properly configured Role ARN here,
-        # or store it in an environment variable. This simplistic approach attempts
-        # to transform the Lambda's ARN into a role ARN.
-        RoleArn=context.invoked_function_arn.replace(":function:", ":role/"),
-        InputDataConfig=[{
-            "ChannelName": "training",
-            "DataSource": {
-                "S3DataSource": {
-                    "S3DataType": "S3Prefix",
-                    "S3Uri": input_s3_uri,
-                    "S3DataDistributionType": "FullyReplicated",
-                }
+        # 6) CREATE AN API GATEWAY
+        # We'll set up a root route for the training Lambda
+        # and add an extra resource /logs for the logs Lambda
+        # We'll also enable open CORS for now (*)
+        api = apigw.RestApi(
+            self,
+            "APIGateway-RenderingPipeline",
+            rest_api_name="APIGateway-RenderingPipeline",
+            deploy_options=apigw.StageOptions(stage_name="prod")
+        )
+
+        # Enable open CORS on entire API
+        # for demonstration purposes—this is often more permissive than a production scenario
+        api.add_gateway_response(
+            "Default4XX",
+            type=apigw.ResponseType.DEFAULT_4_XX,
+            response_headers={
+                "Access-Control-Allow-Origin": "'*'",
+                "Access-Control-Allow-Headers": "'*'",
+                "Access-Control-Allow-Methods": "'*'"
             }
-        }],
-        OutputDataConfig={
-            "S3OutputPath": f"s3://{output_bucket}/models/"
-        },
-        ResourceConfig={
-            "InstanceType": "ml.p3.2xlarge",  # example GPU instance
-            "InstanceCount": 1,
-            "VolumeSizeInGB": 50,
-        },
-        StoppingCondition={"MaxRuntimeInSeconds": 3600}
-    )
+        )
+        api.add_gateway_response(
+            "Default5XX",
+            type=apigw.ResponseType.DEFAULT_5_XX,
+            response_headers={
+                "Access-Control-Allow-Origin": "'*'",
+                "Access-Control-Allow-Headers": "'*'",
+                "Access-Control-Allow-Methods": "'*'"
+            }
+        )
 
-    # Store job status in DynamoDB, including the actual SageMaker job name
-    table.put_item(
-        Item={
-            "jobId": job_id,
-            "status": "IN_PROGRESS",
-            "sageMakerJobName": training_job_name
-        }
-    )
+        # Root integration for training Lambda
+        training_integration = apigw.LambdaIntegration(training_lambda)
+        api.root.add_method("ANY", training_integration)
 
-    return {
-        "statusCode": 200,
-        "body": json.dumps({
-            "message": "SageMaker job started",
-            "jobId": job_id,
-            "containerUsed": ecr_uri,
-            "inputData": input_s3_uri,
-            "trainingJobName": training_job_name
-        })
-    }
+        # /logs resource for logs Lambda
+        logs_integration = apigw.LambdaIntegration(logs_lambda)
+        logs_resource = api.root.add_resource("logs")
+        logs_resource.add_method("ANY", logs_integration)
 
+        # Provide an output so you can easily find the API endpoint
+        CfnOutput(
+            self,
+            "ApiEndpoint",
+            value=api.url,
+            description="API Gateway endpoint for MyRenderingPipeline"
+        )

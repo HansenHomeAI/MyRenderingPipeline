@@ -3,8 +3,8 @@ import json
 import boto3
 import uuid
 
-sagemaker = boto3.client("sagemaker")
-dynamodb = boto3.resource("dynamodb")
+sagemaker = boto3.client("sagemaker", region_name="us-west-2")
+dynamodb = boto3.resource("dynamodb", region_name="us-west-2")
 
 def handler(event, context):
     """

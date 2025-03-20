@@ -65,10 +65,12 @@ class MyRenderingPipelineStack(Stack):
             environment={
                 "OUTPUT_BUCKET": output_bucket.bucket_name,
                 "STATUS_TABLE": table.table_name,
+                "SAGEMAKER_ROLE_ARN": "arn:aws:iam::975050048887:role/MySageMakerExecutionRole"
             },
             timeout=None,
             memory_size=2048
         )
+
 
         # 4a) PERMISSIONS FOR TRAINING LAMBDA
         training_lambda.role.add_managed_policy(

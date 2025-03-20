@@ -169,6 +169,11 @@ class MyRenderingPipelineStack(Stack):
         training_integration = apigw.LambdaIntegration(training_lambda)
         api.root.add_method("ANY", training_integration)
 
+        # Create /start resource for training Lambda
+        start_resource = api.root.add_resource("start")
+        start_resource.add_method("ANY", training_integration)
+
+
         # /logs resource for logs Lambda
         logs_integration = apigw.LambdaIntegration(logs_lambda)
         logs_resource = api.root.add_resource("logs")

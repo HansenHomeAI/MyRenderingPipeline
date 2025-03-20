@@ -3,6 +3,8 @@ import json
 import boto3
 import uuid
 
+# Initialize the SageMaker and DynamoDB clients once at module level
+# so they can be reused by subsequent invocations
 sagemaker = boto3.client("sagemaker")
 dynamodb = boto3.resource("dynamodb")
 
@@ -15,6 +17,10 @@ def handler(event, context):
     # Grab environment variables
     output_bucket = os.environ["OUTPUT_BUCKET"]
     table_name = os.environ["STATUS_TABLE"]
+    
+    # NEW: read the SageMaker execution role ARN from environment
+    role_arn = os.environ.get("SAGEMAKER_ROLE_ARN")
+
     table = dynamodb.Table(table_name)
 
     # Generate a random jobId
@@ -41,10 +47,10 @@ def handler(event, context):
     ecr_uri = f"{account_id}.dkr.ecr.{region}.amazonaws.com/{container_name}:latest"
 
     # Input S3 location
-    # We'll assume your entire file or folder is in: s3://user-submissions/<archiveName>
+    # We'll assume your entire file/folder is in: s3://user-submissions/<archiveName>
     input_s3_uri = f"s3://user-submissions/{s3_archive_name}"
 
-    # Construct the job name
+    # Construct a unique training job name
     training_job_name = f"nerf-training-{job_id}"
 
     # Create the SageMaker training job
@@ -54,7 +60,8 @@ def handler(event, context):
             "TrainingImage": ecr_uri,
             "TrainingInputMode": "File",
         },
-        RoleArn=context.invoked_function_arn.replace(":function:", ":role/"),  # simplistic approach
+        # Use the role ARN from environment here
+        RoleArn=role_arn,
         InputDataConfig=[{
             "ChannelName": "training",
             "DataSource": {
@@ -95,4 +102,3 @@ def handler(event, context):
             "trainingJobName": training_job_name
         })
     }
-

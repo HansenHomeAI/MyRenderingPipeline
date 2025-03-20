@@ -1,6 +1,13 @@
 import os
 import json
 import boto3
+import datetime
+
+class DateTimeEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, datetime.datetime):
+            return obj.isoformat()
+        return super(DateTimeEncoder, self).default(obj)
 
 dynamodb = boto3.resource("dynamodb")
 sagemaker = boto3.client("sagemaker")
@@ -51,9 +58,14 @@ def handler(event, context):
 
     return {
         "statusCode": 200,
+        "headers": {
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "*",
+            "Access-Control-Allow-Methods": "*"
+        },
         "body": json.dumps({
             "dbStatus": job_status_in_db,
             "sageMakerJobDescription": job_description
-        })
+        }, cls=DateTimeEncoder)
     }
 

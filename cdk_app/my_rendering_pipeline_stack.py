@@ -187,7 +187,11 @@ class MyRenderingPipelineStack(Stack):
         logs_integration = apigw.LambdaIntegration(logs_lambda)
         logs_resource = api.root.add_resource("logs")
         logs_resource.add_method("ANY", logs_integration)
-
+        
+        # /stop resource for training Lambda
+        stop_resource = api.root.add_resource("stop")
+        stop_resource.add_method("ANY", training_integration)
+        
         # Provide an output so you can easily find the API endpoint
         CfnOutput(
             self,
@@ -195,3 +199,4 @@ class MyRenderingPipelineStack(Stack):
             value=api.url,
             description="API Gateway endpoint for MyRenderingPipeline"
         )
+

@@ -58,6 +58,13 @@ def handler(event, context):
         AlgorithmSpecification={
             "TrainingImage": ecr_uri,
             "TrainingInputMode": "File",
+    
+            # NEW: override the container's default entrypoint
+            "ContainerEntrypoint": [
+                "/bin/bash",
+                "-c",
+                train_command
+            ]
         },
         RoleArn=role_arn,
         InputDataConfig=[{
@@ -79,11 +86,11 @@ def handler(event, context):
             "VolumeSizeInGB": 50,
         },
         StoppingCondition={"MaxRuntimeInSeconds": 3600},
-
-        # NEW: single hyperparameter with the user-typed command
-        HyperParameters={
-            "train_args": train_command
-        }
+    
+        # Remove HyperParameters if you no longer need them
+        # HyperParameters={
+        #    "train_args": train_command
+        # }
     )
 
     # Store job status in DynamoDB

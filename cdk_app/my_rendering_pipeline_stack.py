@@ -41,6 +41,15 @@ class MyRenderingPipelineStack(Stack):
             bucket_name="gabe-output-renderingpipeline-bucket",
             removal_policy=RemovalPolicy.DESTROY
         )
+        
+        # NEW: Create a bucket for reconstruction outputs (e.g., COLMAP results)
+        reconstruction_bucket = s3.Bucket(
+            self,
+            "ReconstructionBucket",
+            bucket_name="reconstruction-renderingpipeline",
+            removal_policy=RemovalPolicy.DESTROY
+        )
+
 
         # 3) CREATE A DYNAMODB TABLE FOR JOB STATUS
         table = dynamodb.Table(
@@ -65,7 +74,8 @@ class MyRenderingPipelineStack(Stack):
             environment={
                 "OUTPUT_BUCKET": output_bucket.bucket_name,
                 "STATUS_TABLE": table.table_name,
-                "SAGEMAKER_ROLE_ARN": "arn:aws:iam::975050048887:role/MySageMakerExecutionRole"
+                "SAGEMAKER_ROLE_ARN": "arn:aws:iam::975050048887:role/MySageMakerExecutionRole",
+                "RECON_BUCKET": reconstruction_bucket.bucket_name
             },
             timeout=None,
             memory_size=2048
@@ -78,6 +88,7 @@ class MyRenderingPipelineStack(Stack):
         )
         submissions_bucket.grant_read(training_lambda)
         output_bucket.grant_read_write(training_lambda)
+        reconstruction_bucket.grant_read_write(training_lambda)
         table.grant_read_write_data(training_lambda)
         training_lambda.role.add_to_principal_policy(
             iam.PolicyStatement(

@@ -167,7 +167,7 @@ def do_stage_logic(event, action):
     
         # Start execution of the state machine. Replace the placeholder ARN with your actual Step Functions ARN.
         response = stepfunctions_client.start_execution(
-            stateMachineArn="arn-of-your-state-machine",  # <-- Replace this with the actual ARN from your CDK output
+            stateMachineArn="arn:aws:states:us-west-2:975050048887:stateMachine:RenderingPipelineStateMachine39265931-vs5WJJdof6SW",  # <-- Replace this with the actual ARN from your CDK output
             input=json.dumps(sfn_input)
         )
     

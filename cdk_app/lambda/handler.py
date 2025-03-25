@@ -134,108 +134,69 @@ def do_stage_logic(event, action):
         }
     
     def start_job_logic(event):
-    ...
-    # parse user input
-    recon_container = body.get("reconContainer", "colmap")
-    train_container = body.get("trainContainer", "nerfstudio")
-
-    job_id = str(uuid.uuid4())
-
-    # Compose input for step function
-    sfn_input = {
-        "jobId": job_id,
-        "reconContainer": recon_container,
-        "trainContainer": train_container,
-        # etc...
-    }
-
-    # start step function
-    response = stepfunctions_client.start_execution(
-        stateMachineArn="arn-of-your-state-machine",
-        input=json.dumps(sfn_input)
-    )
-
-    # store job status in DB, etc.
-    ...
-    return {
-        "statusCode": 200,
-        "body": json.dumps({
-            "message": "Step Functions pipeline started",
-            "jobId": job_id,
-            "executionArn": response["executionArn"]
-        })
-    }
-
-    # Extract parameters
-    s3_archive_name = body.get("s3ArchiveName", "my-training-data")
-    container_name = body.get("containerName", "nerfstudio")
-    train_command = body.get("trainCommand", "")
-
-    account_id = "975050048887"  # adjust if needed
-    region = "us-west-2"
-    ecr_uri = f"{account_id}.dkr.ecr.{region}.amazonaws.com/{container_name}:latest"
-
-    input_s3_uri = f"s3://user-submissions/{s3_archive_name}"
-    training_job_name = f"nerf-training-{job_id}"
-
-    # Create the SageMaker training job
-    sagemaker.create_training_job(
-        TrainingJobName=training_job_name,
-        AlgorithmSpecification={
-            "TrainingImage": ecr_uri,
-            "TrainingInputMode": "File",
-            "ContainerEntrypoint": [
-                "/bin/bash",
-                "-c",
-                train_command
-            ]
-        },
-        RoleArn=role_arn,
-        InputDataConfig=[{
-            "ChannelName": "training",
-            "DataSource": {
-                "S3DataSource": {
-                    "S3DataType": "S3Prefix",
-                    "S3Uri": input_s3_uri,
-                    "S3DataDistributionType": "FullyReplicated",
+        # Parse the incoming event body (from API Gateway)
+        body = {}
+        if "body" in event:
+            try:
+                body = json.loads(event["body"])
+            except Exception as e:
+                return {
+                    "statusCode": 400,
+                    "body": json.dumps({"error": "Invalid JSON body", "detail": str(e)})
                 }
-            }
-        }],
-        OutputDataConfig={
-            "S3OutputPath": f"s3://{output_bucket}/models/"
-        },
-        ResourceConfig={
-            "InstanceType": "ml.p3.2xlarge",
-            "InstanceCount": 1,
-            "VolumeSizeInGB": 50,
-        },
-        StoppingCondition={"MaxRuntimeInSeconds": 3600},
-    )
-
-    # Store job status in DynamoDB
-    table.put_item(
-        Item={
+        else:
+            body = event
+    
+        # Extract parameters from the request
+        recon_container = body.get("reconContainer", "colmap")
+        train_container = body.get("trainContainer", "nerfstudio")
+        s3_archive_name = body.get("s3ArchiveName", "my-training-data")
+        train_command = body.get("trainCommand", "")
+    
+        # Generate a new job ID
+        job_id = str(uuid.uuid4())
+    
+        # Compose input for the Step Functions state machine execution
+        sfn_input = {
             "jobId": job_id,
-            "status": "IN_PROGRESS",
-            "sageMakerJobName": training_job_name
+            "reconContainer": recon_container,
+            "trainContainer": train_container,
+            "s3ArchiveName": s3_archive_name,
+            "trainCommand": train_command
         }
-    )
-
-    return {
-        "statusCode": 200,
-        "headers": {
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Headers": "*",
-            "Access-Control-Allow-Methods": "*"
-        },
-        "body": json.dumps({
-            "message": "SageMaker job started",
-            "jobId": job_id,
-            "containerUsed": ecr_uri,
-            "inputData": input_s3_uri,
-            "trainingJobName": training_job_name
-        })
-    }
+    
+        # Start execution of the state machine. Replace the placeholder ARN with your actual Step Functions ARN.
+        response = stepfunctions_client.start_execution(
+            stateMachineArn="arn-of-your-state-machine",  # <-- Replace this with the actual ARN from your CDK output
+            input=json.dumps(sfn_input)
+        )
+    
+        # Optionally, store the job status in DynamoDB
+        table_name = os.environ["STATUS_TABLE"]
+        table = dynamodb.Table(table_name)
+        table.put_item(
+            Item={
+                "jobId": job_id,
+                "status": "STEP_FUNCTION_STARTED",
+                "reconContainer": recon_container,
+                "trainContainer": train_container,
+                "executionArn": response["executionArn"]
+            }
+        )
+    
+        return {
+            "statusCode": 200,
+            "headers": {
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Headers": "*",
+                "Access-Control-Allow-Methods": "*"
+            },
+            "body": json.dumps({
+                "message": "Step Functions pipeline started",
+                "jobId": job_id,
+                "executionArn": response["executionArn"]
+            })
+        }
 
 def stop_job_logic(event):
     # Grab environment variables

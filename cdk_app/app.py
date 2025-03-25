@@ -3,8 +3,6 @@
 import os
 import aws_cdk as cdk
 from my_rendering_pipeline_stack import MyRenderingPipelineStack
-from aws_cdk import aws_stepfunctions as sfn
-from aws_cdk import aws_stepfunctions_tasks as tasks
 
 
 

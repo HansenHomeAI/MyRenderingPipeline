@@ -41,6 +41,14 @@ class MyRenderingPipelineStack(Stack):
             bucket_name="gabe-output-renderingpipeline-bucket",
             removal_policy=RemovalPolicy.DESTROY
         )
+        
+        # 2b) CREATE A SECOND BUCKET FOR RECON OUTPUT (COLMAP, etc.)
+        recon_bucket = s3.Bucket(
+            self,
+            "ReconBucket-RenderingPipeline",
+            bucket_name="gabe-recon-renderingpipeline-bucket",
+            removal_policy=RemovalPolicy.DESTROY
+        )
 
         # 3) CREATE A DYNAMODB TABLE FOR JOB STATUS
         table = dynamodb.Table(
@@ -78,6 +86,7 @@ class MyRenderingPipelineStack(Stack):
         )
         submissions_bucket.grant_read(training_lambda)
         output_bucket.grant_read_write(training_lambda)
+        recon_bucket.grant_read_write(training_lambda)
         table.grant_read_write_data(training_lambda)
         training_lambda.role.add_to_principal_policy(
             iam.PolicyStatement(

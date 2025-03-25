@@ -201,6 +201,59 @@ class MyRenderingPipelineStack(Stack):
         stop_resource = api.root.add_resource("stop")
         stop_resource.add_method("ANY", training_integration)
         
+        ####################################
+        # 7) STEP FUNCTIONS
+        ####################################
+        import aws_cdk.aws_stepfunctions as sfn
+        import aws_cdk.aws_stepfunctions_tasks as tasks
+        
+        # We'll define two "Task" states that call the same Lambda:
+        #  - ReconTask
+        #  - TrainTask
+        
+        # Recon Task - pass "action": "RECON"
+        recon_task = tasks.LambdaInvoke(
+            self,
+            "RunReconStage",
+            lambda_function=training_lambda,
+            payload=sfn.TaskInput.from_object({
+                "action": "RECON",  # We will parse this in the lambda
+                "input.$": "$"      # pass entire state machine input
+            }),
+            result_path="$.reconOutput"
+        )
+        
+        # Train Task - pass "action": "TRAIN"
+        train_task = tasks.LambdaInvoke(
+            self,
+            "RunTrainStage",
+            lambda_function=training_lambda,
+            payload=sfn.TaskInput.from_object({
+                "action": "TRAIN",
+                "input.$": "$"
+            }),
+            result_path="$.trainOutput"
+        )
+        
+        # For a simple sequence: Recon -> Train -> Done
+        definition = recon_task.next(train_task)
+        
+        # Create the state machine
+        pipeline_state_machine = sfn.StateMachine(
+            self,
+            "RenderingPipelineStateMachine",
+            definition=definition,
+            timeout=cdk.Duration.hours(8)  # set a max overall time if you like
+        )
+        
+        # Provide an output for the state machine ARN
+        CfnOutput(
+            self,
+            "StateMachineArn",
+            value=pipeline_state_machine.state_machine_arn,
+            description="Step Functions ARN for 2-Stage Recon/Train"
+        )
+        
         # Provide an output so you can easily find the API endpoint
         CfnOutput(
             self,

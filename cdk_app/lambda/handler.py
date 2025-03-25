@@ -5,6 +5,7 @@ import uuid
 
 sagemaker = boto3.client("sagemaker")
 dynamodb = boto3.resource("dynamodb")
+stepfunctions_client = boto3.client("stepfunctions")
 
 def handler(event, context):
     # If invoked by Step Functions, we won't have the same "path" logic:
@@ -132,11 +133,38 @@ def do_stage_logic(event, action):
             })
         }
     
-    # Keep your original start_job_logic if you still want direct /start from the front end:
     def start_job_logic(event):
-        # same as before, or call do_stage_logic with "TRAIN"
-        # ...
-        pass
+    ...
+    # parse user input
+    recon_container = body.get("reconContainer", "colmap")
+    train_container = body.get("trainContainer", "nerfstudio")
+
+    job_id = str(uuid.uuid4())
+
+    # Compose input for step function
+    sfn_input = {
+        "jobId": job_id,
+        "reconContainer": recon_container,
+        "trainContainer": train_container,
+        # etc...
+    }
+
+    # start step function
+    response = stepfunctions_client.start_execution(
+        stateMachineArn="arn-of-your-state-machine",
+        input=json.dumps(sfn_input)
+    )
+
+    # store job status in DB, etc.
+    ...
+    return {
+        "statusCode": 200,
+        "body": json.dumps({
+            "message": "Step Functions pipeline started",
+            "jobId": job_id,
+            "executionArn": response["executionArn"]
+        })
+    }
 
     # Extract parameters
     s3_archive_name = body.get("s3ArchiveName", "my-training-data")

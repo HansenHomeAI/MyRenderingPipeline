@@ -9,6 +9,7 @@ from aws_cdk import (
     CfnOutput,
 )
 from constructs import Construct
+from aws_cdk import Duration
 
 class MyRenderingPipelineStack(Stack):
     """
@@ -243,7 +244,7 @@ class MyRenderingPipelineStack(Stack):
             self,
             "RenderingPipelineStateMachine",
             definition=definition,
-            timeout=cdk.Duration.hours(8)  # set a max overall time if you like
+            timeout=Duration.hours(8)  # set a max overall time if you like
         )
         
         # Provide an output for the state machine ARN

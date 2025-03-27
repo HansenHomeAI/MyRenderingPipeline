@@ -117,6 +117,13 @@ class MyRenderingPipelineStack(Stack):
             )
         )
 
+        training_lambda.role.add_to_principal_policy(
+            iam.PolicyStatement(
+                actions=["states:StartExecution"],
+                resources=["arn:aws:states:us-west-2:975050048887:stateMachine:RenderingPipelineStateMachine39265931-vs5WJJdof6SW"]
+            )
+        )
+        
         # 5) CREATE THE LOGS LAMBDA (RETRIEVES SAGEMAKER/DB STATUS)
         logs_lambda = _lambda.Function(
             self,

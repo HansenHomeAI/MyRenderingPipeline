@@ -251,7 +251,7 @@ class MyRenderingPipelineStack(Stack):
             integration_pattern=sfn.IntegrationPattern.WAIT_FOR_TASK_TOKEN,
             payload=sfn.TaskInput.from_object({
                 "action": "UPDATE_TOKEN",
-                "jobId.$": "$.reconOutput.Payload.jobId",
+                "jobId.$": "$.reconOutput.jobId",
                 "taskToken.$": sfn.JsonPath.string_at("$$.Task.Token")
             }),
             result_path="$.updateTokenResult"

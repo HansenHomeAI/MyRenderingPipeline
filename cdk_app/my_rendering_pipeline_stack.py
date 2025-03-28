@@ -237,9 +237,16 @@ class MyRenderingPipelineStack(Stack):
             "RunReconStage",
             lambda_function=training_lambda,
             payload=sfn.TaskInput.from_object({
-                "action": "RECON",  
+                "action": "RECON",
                 "input.$": "$"
             }),
+            result_selector={
+                 "jobId.$": "$.Payload.jobId",
+                 "message.$": "$.Payload.message",
+                 "containerUsed.$": "$.Payload.containerUsed",
+                 "inputData.$": "$.Payload.inputData",
+                 "trainingJobName.$": "$.Payload.trainingJobName"
+            },
             result_path="$.reconOutput"
         )
         

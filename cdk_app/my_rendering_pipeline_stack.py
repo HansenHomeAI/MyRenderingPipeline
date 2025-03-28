@@ -253,7 +253,7 @@ class MyRenderingPipelineStack(Stack):
                 "action": "UPDATE_TOKEN",
                 "jobId.$": "$.reconOutput.Payload.jobId",
                 "taskToken.$": sfn.JsonPath.taskToken
-            })
+            }),
             result_path="$.updateTokenResult"
         )
         

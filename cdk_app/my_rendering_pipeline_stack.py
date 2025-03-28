@@ -214,6 +214,7 @@ class MyRenderingPipelineStack(Stack):
         ####################################
         import aws_cdk.aws_stepfunctions as sfn
         import aws_cdk.aws_stepfunctions_tasks as tasks
+        import aws_cdk.aws_logs as logs
         
         # We'll define two "Task" states that call the same Lambda:
         #  - ReconTask
@@ -245,14 +246,27 @@ class MyRenderingPipelineStack(Stack):
         
         # For a simple sequence: Recon -> Train -> Done
         definition = recon_task.next(train_task)
-        
-        # Create the state machine
+
+        # Create a CloudWatch Log Group for Step Functions logs
+        step_function_log_group = logs.LogGroup(
+            self,
+            "StepFunctionsLogGroup",
+            retention=logs.RetentionDays.ONE_WEEK  # or another retention period
+        )
+
+        # Create the State Machine
         pipeline_state_machine = sfn.StateMachine(
             self,
             "RenderingPipelineStateMachine",
             definition=definition,
-            timeout=Duration.hours(8)  # set a max overall time if you like
+            timeout=Duration.hours(8),  # set a max overall time if you like
+            logs=sfn.LogOptions(
+                 destination=step_function_log_group,
+                 level=sfn.LogLevel.ALL,  # log all events (use DEBUG, ERROR, etc., as needed)
+                 includeExecutionData=True  # include execution data in logs (be mindful of sensitive data)
+            )
         )
+
         
         # Provide an output for the state machine ARN
         CfnOutput(

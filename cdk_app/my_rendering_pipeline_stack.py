@@ -263,7 +263,6 @@ class MyRenderingPipelineStack(Stack):
             logs=sfn.LogOptions(
                  destination=step_function_log_group,
                  level=sfn.LogLevel.ALL,  # log all events (use DEBUG, ERROR, etc., as needed)
-                 includeExecutionData=True  # include execution data in logs (be mindful of sensitive data)
             )
         )
 

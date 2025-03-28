@@ -11,6 +11,8 @@ from aws_cdk import (
 from constructs import Construct
 from aws_cdk import Duration
 
+from aws_cdk import aws_lambda_event_sources as lambda_events
+
 class MyRenderingPipelineStack(Stack):
     """
     A single CDK Stack that includes:
@@ -60,8 +62,10 @@ class MyRenderingPipelineStack(Stack):
                 name="jobId",
                 type=dynamodb.AttributeType.STRING
             ),
-            removal_policy=RemovalPolicy.DESTROY
+            removal_policy=RemovalPolicy.DESTROY,
+            stream=dynamodb.StreamViewType.NEW_AND_OLD_IMAGES
         )
+
 
         # 4) CREATE THE TRAINING LAMBDA (TRIGGERS SAGEMAKER)
         training_lambda = _lambda.Function(
@@ -135,9 +139,16 @@ class MyRenderingPipelineStack(Stack):
             environment={
                 "STATUS_TABLE": table.table_name,
             },
-            timeout=None,
+            timeout=Duration.seconds(30),
             memory_size=1024
         )
+        
+        logs_lambda.add_event_source(lambda_events.DynamoEventSource(
+            table,
+            starting_position=_lambda.StartingPosition.LATEST,
+            batch_size=1  # process one record at a time
+        ))
+
         logs_lambda.role.add_managed_policy(
             iam.ManagedPolicy.from_aws_managed_policy_name("service-role/AWSLambdaBasicExecutionRole")
         )

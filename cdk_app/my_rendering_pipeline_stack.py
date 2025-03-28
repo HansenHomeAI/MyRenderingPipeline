@@ -237,36 +237,24 @@ class MyRenderingPipelineStack(Stack):
             "RunReconStage",
             lambda_function=training_lambda,
             payload=sfn.TaskInput.from_object({
-                "action": "RECON",
+                "action": "RECON",  
                 "input.$": "$"
             }),
             result_path="$.reconOutput"
         )
         
-        # NEW: UpdateToken Task – calls a Lambda (or uses training_lambda) to store the task token in DynamoDB.
+        # NEW: UpdateToken Task now uses WAIT_FOR_TASK_TOKEN integration.
         update_token_task = tasks.LambdaInvoke(
             self,
             "UpdateTaskToken",
-            lambda_function=training_lambda,  # or a dedicated Lambda if desired
-            payload=sfn.TaskInput.from_object({
-                "action": "UPDATE_TOKEN",
-                "taskToken.$": "$$.Task.Token",  # Pass the task token
-                "jobId.$": "$.reconOutput.Payload.jobId"  # Ensure your recon task returns jobId
-            }),
-            result_path="$.updateTokenResult"
-        )
-        
-        # NEW: WaitForReconCallback – waits until a callback is received.
-        wait_for_callback = tasks.LambdaInvoke(
-            self,
-            "WaitForReconCallback",
-            lambda_function=logs_lambda,  # This is our logs Lambda acting as callback handler
+            lambda_function=training_lambda,
             integration_pattern=sfn.IntegrationPattern.WAIT_FOR_TASK_TOKEN,
             payload=sfn.TaskInput.from_object({
-                "taskToken.$": "$$.Task.Token",  # Task token passed by Step Functions
-                "jobId.$": "$.reconOutput.Payload.jobId"
+                "action": "UPDATE_TOKEN",
+                "jobId.$": "$.reconOutput.Payload.jobId",
+                "taskToken.$": "$$.Task.Token"
             }),
-            result_path="$.callbackResult"
+            result_path="$.updateTokenResult"
         )
         
         # Train Task remains the same
@@ -281,8 +269,8 @@ class MyRenderingPipelineStack(Stack):
             result_path="$.trainOutput"
         )
         
-        # New definition: Recon -> UpdateToken -> WaitForCallback -> Train
-        definition = recon_task.next(update_token_task).next(wait_for_callback).next(train_task)
+        # New definition: Recon -> UpdateToken (which waits for callback) -> Train
+        definition = recon_task.next(update_token_task).next(train_task)
 
 
         # Create a CloudWatch Log Group for Step Functions logs

@@ -29,45 +29,56 @@ def handler(event, context):
             }
 
 def do_stage_logic(event, action):
-    """
-    Shared function that starts either Recon or Train job in SageMaker
-    depending on 'action' ("RECON" or "TRAIN").
-    """
+    if action == "UPDATE_TOKEN":
+        table_name = os.environ["STATUS_TABLE"]
+        table = dynamodb.Table(table_name)
+        # Expecting jobId and taskToken in the event
+        job_id = event.get("jobId")
+        task_token = event.get("taskToken")
+        if job_id and task_token:
+            table.update_item(
+                Key={"jobId": job_id},
+                UpdateExpression="SET taskToken = :token",
+                ExpressionAttributeValues={":token": task_token}
+            )
+            return {
+                "statusCode": 200,
+                "body": json.dumps({"message": "Task token updated", "jobId": job_id})
+            }
+        else:
+            return {
+                "statusCode": 400,
+                "body": json.dumps({"error": "Missing jobId or taskToken"})
+            }
+    # Otherwise, proceed with the regular RECON/ TRAIN logic:
     table_name = os.environ["STATUS_TABLE"]
     role_arn = os.environ["SAGEMAKER_ROLE_ARN"]
-    recon_bucket_name = "gabe-recon-renderingpipeline-bucket"  # adjust if needed
-    output_bucket_name = os.environ["OUTPUT_BUCKET"]            # the final output bucket
+    recon_bucket_name = "gabe-recon-renderingpipeline-bucket"
+    output_bucket_name = os.environ["OUTPUT_BUCKET"]
     table = dynamodb.Table(table_name)
-
-    # Parse step function input (from the state machine)
+    
     input_payload = event.get("input", {})
     job_id = input_payload.get("jobId", str(uuid.uuid4()))
-
-    # Parse container name and training command from the input
     container_name = input_payload.get("containerName", "nerfstudio")
     train_command = input_payload.get("trainCommand", "")
     
     account_id = "975050048887"
     region = "us-west-2"
     ecr_uri = f"{account_id}.dkr.ecr.{region}.amazonaws.com/{container_name}:latest"
-
-    # Determine S3 paths based on action
+    
     if action == "RECON":
-        # For recon, output goes to the recon bucket
         output_s3_uri = f"s3://{recon_bucket_name}/recon-outputs/"
         job_prefix = "recon"
         s3_archive_name = input_payload.get("s3ArchiveName", "my-training-data")
         input_s3_uri = f"s3://user-submissions/{s3_archive_name}"
     else:
-        # For training, output goes to the final output bucket; input is from recon bucket
         output_s3_uri = f"s3://{output_bucket_name}/models/"
         job_prefix = "train"
         recon_output_key = f"{job_id}-RECON-output"
         input_s3_uri = f"s3://{recon_bucket_name}/recon-outputs/{recon_output_key}"
-
+    
     training_job_name = f"{job_prefix}-job-{job_id}"
-
-    # Start the SageMaker training job
+    
     sagemaker.create_training_job(
         TrainingJobName=training_job_name,
         AlgorithmSpecification={
@@ -94,8 +105,7 @@ def do_stage_logic(event, action):
         },
         StoppingCondition={"MaxRuntimeInSeconds": 3600}
     )
-
-    # Update DynamoDB with job status
+    
     table.put_item(
         Item={
             "jobId": job_id,
@@ -105,7 +115,7 @@ def do_stage_logic(event, action):
             "outputBucket": output_s3_uri
         }
     )
-
+    
     return {
         "statusCode": 200,
         "body": json.dumps({
@@ -116,6 +126,7 @@ def do_stage_logic(event, action):
             "trainingJobName": training_job_name
         })
     }
+
 
 def start_job_logic(event):
     # Parse the incoming event body from API Gateway

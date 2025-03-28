@@ -118,14 +118,13 @@ def do_stage_logic(event, action):
     
     return {
         "statusCode": 200,
-        "body": json.dumps({
-            "message": f"{action} stage job started",
-            "jobId": job_id,
-            "containerUsed": ecr_uri,
-            "inputData": input_s3_uri,
-            "trainingJobName": training_job_name
-        })
+        "message": f"{action} stage job started",
+        "jobId": job_id,
+        "containerUsed": ecr_uri,
+        "inputData": input_s3_uri,
+        "trainingJobName": training_job_name
     }
+
 
 
 def start_job_logic(event):

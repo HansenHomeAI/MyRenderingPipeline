@@ -231,19 +231,45 @@ class MyRenderingPipelineStack(Stack):
         #  - ReconTask
         #  - TrainTask
         
-        # Recon Task - pass "action": "RECON"
+        # Recon Task remains the same
         recon_task = tasks.LambdaInvoke(
             self,
             "RunReconStage",
             lambda_function=training_lambda,
             payload=sfn.TaskInput.from_object({
-                "action": "RECON",  # We will parse this in the lambda
-                "input.$": "$"      # pass entire state machine input
+                "action": "RECON",
+                "input.$": "$"
             }),
             result_path="$.reconOutput"
         )
         
-        # Train Task - pass "action": "TRAIN"
+        # NEW: UpdateToken Task – calls a Lambda (or uses training_lambda) to store the task token in DynamoDB.
+        update_token_task = tasks.LambdaInvoke(
+            self,
+            "UpdateTaskToken",
+            lambda_function=training_lambda,  # or a dedicated Lambda if desired
+            payload=sfn.TaskInput.from_object({
+                "action": "UPDATE_TOKEN",
+                "taskToken.$": "$$.Task.Token",  # Pass the task token
+                "jobId.$": "$.reconOutput.Payload.jobId"  # Ensure your recon task returns jobId
+            }),
+            result_path="$.updateTokenResult"
+        )
+        
+        # NEW: WaitForReconCallback – waits until a callback is received.
+        wait_for_callback = tasks.LambdaInvoke(
+            self,
+            "WaitForReconCallback",
+            lambda_function=logs_lambda,  # This is our logs Lambda acting as callback handler
+            integration_pattern=sfn.IntegrationPattern.WAIT_FOR_TASK_TOKEN,
+            payload=sfn.TaskInput.from_object({
+                "taskToken.$": "$$.Task.Token",  # Task token passed by Step Functions
+                "jobId.$": "$.reconOutput.Payload.jobId"
+            }),
+            result_path="$.callbackResult"
+        )
+        
+        # Train Task remains the same
         train_task = tasks.LambdaInvoke(
             self,
             "RunTrainStage",
@@ -255,8 +281,9 @@ class MyRenderingPipelineStack(Stack):
             result_path="$.trainOutput"
         )
         
-        # For a simple sequence: Recon -> Train -> Done
-        definition = recon_task.next(train_task)
+        # New definition: Recon -> UpdateToken -> WaitForCallback -> Train
+        definition = recon_task.next(update_token_task).next(wait_for_callback).next(train_task)
+
 
         # Create a CloudWatch Log Group for Step Functions logs
         step_function_log_group = logs.LogGroup(
